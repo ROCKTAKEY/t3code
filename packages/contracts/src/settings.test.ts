@@ -7,6 +7,7 @@ import {
   ClientSettingsSchema,
   ClientSettingsPatch,
   ClaudeSettings,
+  CodexSettings,
   DEFAULT_SERVER_SETTINGS,
   globalIdleCompaction,
   idleCompactionPatch,
@@ -26,6 +27,16 @@ const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
+
+describe("Codex app-server sharing", () => {
+  const decode = Schema.decodeUnknownSync(CodexSettings);
+
+  it("shares by default and preserves an explicit opt-out", () => {
+    expect(decode({}).shareAppServer).toBe(true);
+    expect(decode({ shareAppServer: false }).shareAppServer).toBe(false);
+    expect(() => decode({ shareAppServer: "false" })).toThrow();
+  });
+});
 
 describe("storage cleanup settings", () => {
   it("keeps cleanup disabled for existing installations", () => {

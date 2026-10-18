@@ -722,13 +722,20 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
     });
   }
 
-  const probeResult = yield* probe({
-    binaryPath: codexSettings.binaryPath,
-    homePath: codexSettings.homePath,
-    launchArgs: resolveCodexLaunchArgs(codexSettings.launchArgs, resolvedEnvironment),
-    cwd: process.cwd(),
-    environment: resolvedEnvironment,
-    ...(managedAuth ? { skipNativeUsage: true } : {}),
+  const probeResult = yield* Effect.gen(function* () {
+    const cwd = codexSettings.shareAppServer
+      ? process.cwd()
+      : yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped({
+          prefix: "t3-codex-probe-",
+        });
+    return yield* probe({
+      binaryPath: codexSettings.binaryPath,
+      homePath: codexSettings.homePath,
+      launchArgs: resolveCodexLaunchArgs(codexSettings.launchArgs, resolvedEnvironment),
+      cwd,
+      environment: resolvedEnvironment,
+      ...(managedAuth ? { skipNativeUsage: true } : {}),
+    });
   }).pipe(
     // Process teardown can outlast the work budget without discarding a completed snapshot.
     Effect.timeoutOption(Duration.millis(CODEX_AUTH_PROBE_TIMEOUT_MS)),

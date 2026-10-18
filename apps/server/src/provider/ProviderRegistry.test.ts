@@ -8,6 +8,7 @@ import { describe, it, assert, expect } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -322,6 +323,25 @@ it.layer(
   Layer.mergeAll(layerTestNodeServices, ServerSettingsModule.layerTest(), layerTestHttpClient),
 )("ProviderRegistry", (it) => {
   describe("checkCodexProviderStatus", () => {
+    it.effect("runs dedicated Codex probes in an empty temporary directory", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        let probeCwd = "";
+        const status = yield* checkCodexProviderStatus(
+          { ...defaultCodexSettings, shareAppServer: false },
+          (input) =>
+            Effect.gen(function* () {
+              probeCwd = input.cwd;
+              assert.notEqual(probeCwd, process.cwd());
+              assert.deepEqual(yield* fs.readDirectory(probeCwd).pipe(Effect.orDie), []);
+              return makeCodexProbeSnapshot();
+            }),
+        );
+        assert.equal(status.status, "ready");
+        assert.isFalse(yield* fs.exists(probeCwd));
+      }),
+    );
+
     it.effect("uses the app-server account and model list for provider status", () =>
       Effect.gen(function* () {
         const status = yield* checkCodexProviderStatus(defaultCodexSettings, () =>

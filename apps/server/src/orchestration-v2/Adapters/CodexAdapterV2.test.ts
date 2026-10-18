@@ -1,3 +1,5 @@
+import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as Path from "effect/Path";
 import { historyResponseItems } from "@t3tools/provider-core/server/handoffBudget";
 import {
   makeProviderTextDeltaCoalescer,
@@ -245,6 +247,69 @@ describe("CodexAdapterV2 runtime policy", () => {
       });
       assert.isDefined(withT3.additionalContext?.["t3_code_runtime"]);
     }),
+  );
+});
+
+describe("CodexAdapterV2 process spawning", () => {
+  it.effect("launches the app-server with the configured launch arguments", () =>
+    Effect.gen(function* () {
+      const spawnedArgs: Array<ReadonlyArray<string>> = [];
+      const spawnedCwds: Array<string | undefined> = [];
+      const spawner = ChildProcessSpawner.make((command) => {
+        if (ChildProcess.isStandardCommand(command)) {
+          spawnedArgs.push(command.args);
+          spawnedCwds.push(command.options.cwd);
+        }
+        return Effect.fail(
+          PlatformError.systemError({ _tag: "NotFound", module: "ChildProcess", method: "spawn" }),
+        );
+      });
+      const factory = yield* CodexAdapterV2.CodexAppServerClientFactory.pipe(
+        Effect.provide(CodexAdapterV2.layerAppServerClientFactory),
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        Effect.provideService(
+          ProviderEventLoggers.ProviderEventLoggers,
+          ProviderEventLoggers.NoOpProviderEventLoggers,
+        ),
+      );
+      const open = (
+        environment: NodeJS.ProcessEnv,
+        shareAppServer = true,
+        cwd: string | null = "/workspace",
+      ) =>
+        factory
+          .open({
+            instanceId: CodexAdapterV2.CODEX_DEFAULT_INSTANCE_ID,
+            threadId: ThreadId.make("thread-launch-args"),
+            providerSessionId: ProviderSessionId.make("provider-session-launch-args"),
+            runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              cwd,
+            }),
+            settings: {
+              ...DEFAULT_CODEX_SETTINGS,
+              shareAppServer,
+              launchArgs: " --strict-config -c model_reasoning_summary=detailed ",
+            },
+            environment,
+          })
+          .pipe(Effect.scoped, Effect.exit);
+
+      yield* open({});
+      yield* open({ T3CODE_CODEX_LAUNCH_ARGS: " --enable env-feature " });
+      yield* open({}, false, "/workspace/dedicated");
+      yield* open({}, false, null);
+      yield* open({}, false, "");
+      yield* open({}, false, "relative/workspace");
+
+      assert.deepEqual(spawnedArgs, [
+        ["app-server", "--strict-config", "-c", "model_reasoning_summary=detailed"],
+        ["app-server", "--enable", "env-feature"],
+        ["app-server", "--strict-config", "-c", "model_reasoning_summary=detailed"],
+      ]);
+      assert.deepEqual(spawnedCwds, [undefined, undefined, "/workspace/dedicated"]);
+    }).pipe(Effect.provideService(HostProcess.Platform, "linux"), Effect.provide(Path.layer)),
   );
 });
 
@@ -866,6 +931,13 @@ describe("CodexAdapterV2 session initialize", () => {
   const openReplaySession = (
     transcript: CodexReplay.CodexAppServerReplayTranscript,
     beforeEmitInbound?: CodexReplay.CodexAppServerReplayDriver["beforeEmitInbound"],
+    settings = DEFAULT_CODEX_SETTINGS,
+    openOptions: Partial<
+      Pick<
+        ProviderAdapter.ProviderAdapterV2OpenSessionInput,
+        "resumeFromSession" | "providerSessionId"
+      >
+    > = {},
   ) =>
     Effect.gen(function* () {
       const driver = yield* CodexReplay.makeReplayDriver(
@@ -873,13 +945,15 @@ describe("CodexAdapterV2 session initialize", () => {
         beforeEmitInbound === undefined ? {} : { beforeEmitInbound },
       );
       let initializeRequests = 0;
+      const launches: Array<CodexSettings> = [];
       const adapter = yield* CodexAdapterV2.makeCodexAdapterV2({
         instanceId: CodexAdapterV2.CODEX_DEFAULT_INSTANCE_ID,
-        settings: DEFAULT_CODEX_SETTINGS,
+        settings,
         environment: {},
         clientFactory: {
-          open: (openInput) =>
-            Layer.build(CodexReplay.layerReplayWithDriver(driver)).pipe(
+          open: (openInput) => {
+            launches.push(openInput.settings);
+            return Layer.build(CodexReplay.layerReplayWithDriver(driver)).pipe(
               Effect.flatMap((context) =>
                 Effect.service(CodexClient.CodexAppServerClient).pipe(Effect.provide(context)),
               ),
@@ -901,7 +975,8 @@ describe("CodexAdapterV2 session initialize", () => {
                     cause,
                   }),
               ),
-            ),
+            );
+          },
         },
         crypto: yield* Crypto.Crypto,
         fileSystem: yield* FileSystem.FileSystem,
@@ -915,8 +990,12 @@ describe("CodexAdapterV2 session initialize", () => {
         providerSessionId: ProviderSessionId.make(`provider-session-${transcript.scenario}`),
         modelSelection: CODEX_TEST_MODEL_SELECTION,
         runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
+        ...openOptions,
       });
       return {
+        capabilities: yield* adapter.getCapabilities(),
+        session: runtime.providerSession,
+        launchSettings: launches[0],
         ensureThread: (threadId: string) =>
           runtime.ensureThread({
             threadId: ThreadId.make(threadId),
@@ -929,6 +1008,85 @@ describe("CodexAdapterV2 session initialize", () => {
 
   const replayPreamble = (nativeThreadId: string) =>
     codexReplayPreamble({ nativeThreadId, nativeTurnId: "unused", prompt: "unused" });
+
+  it.effect("advertises dedicated sessions when app-server sharing is disabled", () =>
+    Effect.gen(function* () {
+      for (const shareAppServer of [true, false]) {
+        const session = yield* openReplaySession(
+          makeCodexReplayTranscript({ scenario: "session-sharing", entries: [] }),
+          undefined,
+          { ...DEFAULT_CODEX_SETTINGS, shareAppServer },
+        );
+        assert.equal(
+          session.capabilities.sessions.supportsMultipleProviderThreadsPerSession,
+          shareAppServer,
+        );
+        assert.deepEqual(session.session.capabilities, session.capabilities);
+      }
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
+  );
+
+  it.effect("keeps the saved sharing policy and launch mode when settings change", () =>
+    Effect.gen(function* () {
+      for (const shareAppServer of [true, false]) {
+        const transcript = makeCodexReplayTranscript({ scenario: "resume-sharing", entries: [] });
+        const original = yield* openReplaySession(transcript, undefined, {
+          ...DEFAULT_CODEX_SETTINGS,
+          shareAppServer,
+        });
+        const resumed = yield* openReplaySession(
+          transcript,
+          undefined,
+          { ...DEFAULT_CODEX_SETTINGS, shareAppServer: !shareAppServer },
+          { resumeFromSession: original.session },
+        );
+        assert.equal(
+          resumed.capabilities.sessions.supportsMultipleProviderThreadsPerSession,
+          !shareAppServer,
+        );
+        assert.equal(
+          resumed.session.capabilities.sessions.supportsMultipleProviderThreadsPerSession,
+          shareAppServer,
+        );
+        assert.equal(resumed.launchSettings?.shareAppServer, shareAppServer);
+      }
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
+  );
+
+  it.effect("keeps an allocated shared session shared before its first successful open", () =>
+    Effect.gen(function* () {
+      const idAllocator = yield* IdAllocator.IdAllocatorV2;
+      const session = yield* openReplaySession(
+        makeCodexReplayTranscript({ scenario: "pending-shared-session", entries: [] }),
+        undefined,
+        { ...DEFAULT_CODEX_SETTINGS, shareAppServer: false },
+        {
+          providerSessionId: idAllocator.derive.providerSession({
+            providerInstanceId: CodexAdapterV2.CODEX_DEFAULT_INSTANCE_ID,
+          }),
+        },
+      );
+      assert.isTrue(
+        session.session.capabilities.sessions.supportsMultipleProviderThreadsPerSession,
+      );
+      assert.isTrue(session.launchSettings?.shareAppServer);
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
+  );
 
   it.effect("sends one initialize when two threads start on a fresh session at once", () =>
     Effect.gen(function* () {
