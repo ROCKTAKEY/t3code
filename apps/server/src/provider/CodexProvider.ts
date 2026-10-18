@@ -680,14 +680,21 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
     });
   }
 
-  const probeResult = yield* probe({
-    binaryPath: codexSettings.binaryPath,
-    homePath: codexSettings.homePath,
-    launchArgs: resolveCodexLaunchArgs(codexSettings.launchArgs, resolvedEnvironment),
-    cwd: process.cwd(),
-    customModels: codexSettings.customModels,
-    environment: resolvedEnvironment,
-    ...(managedAuth ? { skipNativeUsage: true } : {}),
+  const probeResult = yield* Effect.gen(function* () {
+    const cwd = codexSettings.shareAppServer
+      ? process.cwd()
+      : yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped({
+          prefix: "t3-codex-probe-",
+        });
+    return yield* probe({
+      binaryPath: codexSettings.binaryPath,
+      homePath: codexSettings.homePath,
+      launchArgs: resolveCodexLaunchArgs(codexSettings.launchArgs, resolvedEnvironment),
+      cwd,
+      customModels: codexSettings.customModels,
+      environment: resolvedEnvironment,
+      ...(managedAuth ? { skipNativeUsage: true } : {}),
+    });
   }).pipe(
     Effect.scoped,
     Effect.timeoutOption(Duration.millis(AUTH_PROBE_TIMEOUT_MS)),

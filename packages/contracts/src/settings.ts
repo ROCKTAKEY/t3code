@@ -617,6 +617,15 @@ export function makeProviderSettingsSchema<const Fields extends Schema.Struct.Fi
 
 export const CodexSettings = makeProviderSettingsSchema(
   {
+    shareAppServer: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(true)),
+      Schema.annotateKey({
+        title: "Share app-server between threads",
+        providerSettingsForm: { control: "switch" },
+        description:
+          "Turn off to start new threads in separate processes from their project or worktree directories. Existing threads keep their sharing mode. Use a custom executable to run in a container.",
+      }),
+    ),
     setupMode: Schema.optionalKey(Schema.Literals(["managed", "existing"])).pipe(
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
@@ -667,7 +676,7 @@ export const CodexSettings = makeProviderSettingsSchema(
     ),
   },
   {
-    order: ["binaryPath", "homePath", "shadowHomePath", "launchArgs"],
+    order: ["binaryPath", "homePath", "shadowHomePath", "launchArgs", "shareAppServer"],
   },
 );
 export type CodexSettings = typeof CodexSettings.Type;

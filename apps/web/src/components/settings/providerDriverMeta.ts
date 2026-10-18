@@ -11,6 +11,11 @@ import { grokClient } from "@t3tools/provider-grok/client";
 import { museClient } from "@t3tools/provider-muse/client";
 import { openCodeClient } from "@t3tools/provider-opencode/client";
 import { piClient } from "@t3tools/provider-pi/client";
+import * as Schema from "effect/Schema";
+
+export const codexManagedRuntimeSettings = {
+  settingsSchema: Schema.Struct({ shareAppServer: CodexSettings.fields.shareAppServer }),
+};
 
 /** The provider client definitions this web build ships, in presentation order. */
 export const providerClients = makeProviderClientRegistry([

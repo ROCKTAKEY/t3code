@@ -62,6 +62,7 @@ import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayo
 import { AcpSessionManagementSection } from "./AcpSessionManagementSection";
 import { FoldedSettingsSection } from "./FoldedSettingsSection";
 import { readCodexSetupMode } from "./CodexSetupSection.logic";
+import { codexManagedRuntimeSettings } from "./providerDriverMeta";
 import {
   getProviderVersionAdvisoryPresentation,
   PROVIDER_STATUS_STYLES,
@@ -1284,6 +1285,15 @@ export function ProviderInstanceCard({
             headerPlacement="outside"
           >
             {runtime ?? runtimeFields}
+            {runtime ? (
+              <ProviderSettingsForm
+                definition={codexManagedRuntimeSettings}
+                value={instance.config}
+                idPrefix={`provider-instance-${instanceId}-sharing`}
+                variant="settings"
+                onChange={updateConfig}
+              />
+            ) : null}
           </FoldedSettingsSection>
         </div>
       ) : !driverOption || deriveProviderSettingsFields(driverOption).length > 0 ? (

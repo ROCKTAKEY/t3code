@@ -1,13 +1,28 @@
 import { describe, expect, it } from "vite-plus/test";
 import { ProviderDriverKind } from "@t3tools/contracts";
 
-import { providerClients } from "./providerDriverMeta";
+import { codexManagedRuntimeSettings, providerClients } from "./providerDriverMeta";
 import {
   deriveProviderSettingsFields,
   nextProviderConfigWithFieldValue,
 } from "./ProviderSettingsForm";
 
 describe("ProviderSettingsForm helpers", () => {
+  it("exposes the sharing switch for managed Codex without editable installation paths", () => {
+    expect(deriveProviderSettingsFields(codexManagedRuntimeSettings)).toMatchObject([
+      { key: "shareAppServer", control: "switch", defaultBooleanValue: true },
+    ]);
+    expect(
+      nextProviderConfigWithFieldValue(
+        { setupMode: "managed" },
+        deriveProviderSettingsFields(codexManagedRuntimeSettings)[0]!,
+        false,
+      ),
+    ).toMatchObject({
+      setupMode: "managed",
+      shareAppServer: false,
+    });
+  });
   it("derives visible provider config fields from the client definition schema", () => {
     const codex = providerClients.get(ProviderDriverKind.make("codex"));
 
@@ -17,6 +32,7 @@ describe("ProviderSettingsForm helpers", () => {
       "homePath",
       "shadowHomePath",
       "launchArgs",
+      "shareAppServer",
     ]);
   });
 
