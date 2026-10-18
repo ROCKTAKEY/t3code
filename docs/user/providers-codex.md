@@ -17,6 +17,23 @@ Run `codex login` on the environment's machine, then add a Codex instance in **S
 
 If provider status checks time out on a slower machine, set `T3CODE_CODEX_PROBE_TIMEOUT_MS=60000` in the server environment and restart. See [Provider check timeouts](./install.md#provider-check-timeouts).
 
+## Run each thread in a separate process
+
+In **Settings → Providers**, open the Codex instance's **Runtime** settings and
+turn off **Share app-server between threads**. Configure this on web or desktop;
+it also applies to threads used from mobile and remote clients.
+
+New threads start Codex from their project or worktree directory. Set **Binary
+path** to your container wrapper to share only that directory. Process separation
+alone does not restrict filesystem access; your wrapper controls the mounts.
+Provider status checks run from an empty temporary directory.
+
+Existing conversations keep their sharing mode when resumed, including after a
+server restart. To use a container for a conversation, turn sharing off before
+starting a new thread. Changing a dedicated thread's worktree closes its process;
+the next turn starts a process in the new directory and resumes the conversation.
+Turn sharing back on to share an app-server for new threads in that instance.
+
 ## Use multiple accounts
 
 Add another ChatGPT account in **Settings → Providers**, or configure multiple CLI logins with a **shadow home** so work and personal accounts can continue the same threads:

@@ -12,6 +12,7 @@ import {
   ClientSettingsPatch,
   ClientServerSettingsPatch,
   ClaudeSettings,
+  CodexSettings,
   DEFAULT_SERVER_SETTINGS,
   globalIdleCompaction,
   idleCompactionPatch,
@@ -53,6 +54,16 @@ it("drops theme defaults from a client's settings patch", () => {
       defaultAppearanceSetAt: "2026-11-13T00:00:00.000Z",
     }),
   ).toEqual({ newWorktreesStartFromOrigin: false });
+});
+
+describe("Codex app-server sharing", () => {
+  const decode = Schema.decodeUnknownSync(CodexSettings);
+
+  it("shares by default and preserves an explicit opt-out", () => {
+    expect(decode({}).shareAppServer).toBe(true);
+    expect(decode({ shareAppServer: false }).shareAppServer).toBe(false);
+    expect(() => decode({ shareAppServer: "false" })).toThrow();
+  });
 });
 
 describe("storage cleanup settings", () => {
