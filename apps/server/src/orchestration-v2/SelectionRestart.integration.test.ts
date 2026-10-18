@@ -17,6 +17,7 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -996,4 +997,108 @@ it.live.each(["active", "idle", "selection-command", "pooled", "separate-home"] 
         }).pipe(Effect.provide(ProviderReplayHarness.layerWithRegistry({ name }, layerRegistry)));
       }),
     ),
+);
+
+it.live("restarts a dedicated provider through the existing workspace detach lifecycle", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const firstCwd = yield* checkpointWorkspace("dedicated-workspace-first");
+      const secondCwd = yield* checkpointWorkspace("dedicated-workspace-second");
+      const threadId = ThreadId.make("dedicated-workspace");
+      const closed = yield* Deferred.make<void>();
+      const state = yield* Ref.make<RestartAdapterState>({
+        activeTurn: null,
+        opened: [],
+        started: [],
+        closedSessionCount: 0,
+        failedReplacementOpen: false,
+      });
+      const adapter = makeRestartAdapter(state, exclusiveCapabilities);
+      yield* Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+        const sink = yield* EventSink.EventSinkV2;
+        yield* orchestrator.dispatch({
+          type: "thread.create",
+          createdBy: "user",
+          creationSource: "web",
+          commandId: CommandId.make("dedicated-workspace-create"),
+          threadId,
+          projectId: ProjectId.make("dedicated-workspace-project"),
+          title: "Dedicated workspace",
+          modelSelection: seedSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: firstCwd,
+        });
+        const send = (ordinal: number) =>
+          Effect.gen(function* () {
+            const completed = yield* sink
+              .stream({
+                threadId,
+                afterSequence: yield* sink.latestSequence({ threadId }),
+              })
+              .pipe(
+                Stream.filter(
+                  (stored) =>
+                    stored.event.type === "run.updated" &&
+                    stored.event.payload.status === "completed",
+                ),
+                Stream.take(1),
+                Stream.runDrain,
+                Effect.forkScoped,
+              );
+            yield* orchestrator.dispatch({
+              type: "message.dispatch",
+              createdBy: "user",
+              creationSource: "web",
+              commandId: CommandId.make(`dedicated-workspace-send-${ordinal}`),
+              threadId,
+              messageId: MessageId.make(`dedicated-workspace-message-${ordinal}`),
+              text: "Continue",
+              attachments: [],
+              modelSelection: seedSelection,
+              dispatchMode: { type: "start_immediately" },
+            });
+            yield* Fiber.join(completed);
+            yield* worker.drain();
+            const projection = yield* orchestrator.getThreadProjection(threadId);
+            return projection.providerThreads.find(
+              (thread) => thread.id === projection.thread.activeProviderThreadId,
+            )!;
+          });
+        const first = yield* send(1);
+        yield* orchestrator.dispatch({
+          type: "thread.metadata.update",
+          commandId: CommandId.make("dedicated-workspace-change"),
+          threadId,
+          worktreePath: secondCwd,
+        });
+        yield* worker.drain();
+        yield* Deferred.await(closed);
+        assert.equal((yield* Ref.get(state)).closedSessionCount, 1);
+        const second = yield* send(2);
+        assert.deepEqual(second.nativeThreadRef, first.nativeThreadRef);
+        assert.deepEqual(
+          (yield* Ref.get(state)).opened.map((open) => open.cwd),
+          [firstCwd, secondCwd],
+        );
+      }).pipe(
+        Effect.provide(
+          ProviderReplayHarness.layerWithRegistry(
+            { name: "dedicated-workspace" },
+            ProviderAdapterRegistry.layerSingle({
+              ...adapter,
+              openSession: (input) =>
+                Effect.gen(function* () {
+                  yield* Effect.addFinalizer(() => Deferred.succeed(closed, undefined));
+                  return yield* adapter.openSession(input);
+                }),
+            }),
+          ),
+        ),
+      );
+    }),
+  ),
 );
