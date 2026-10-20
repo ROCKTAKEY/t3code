@@ -1,6 +1,7 @@
 import * as Path from "effect/Path";
 import * as Option from "effect/Option";
 import * as NodeURL from "node:url";
+import * as OpenCode2SessionServers from "./OpenCode2SessionServers.ts";
 
 import {
   AbsolutePath,
@@ -716,7 +717,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (
   instanceId: ProviderInstanceId,
   shareServer = true,
 ) {
-  const servers = yield* OpenCode2Server.OpenCode2SessionServers;
+  const servers = yield* OpenCode2SessionServers.OpenCode2SessionServers;
   const capabilitiesFor = (shared: boolean) => ({
     ...OpenCode2ProviderCapabilities,
     sessions: {
