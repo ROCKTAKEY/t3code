@@ -1,3 +1,4 @@
+import * as OpenCode2SessionServers from "./v2/OpenCode2SessionServers.ts";
 import { ProviderDriverKind } from "@t3tools/contracts";
 import { OpenCodeSettings } from "../settings.ts";
 import * as Crypto from "effect/Crypto";
@@ -279,42 +280,30 @@ export const OpenCodeDriver: ProviderDriver<
           }),
       ),
     );
-    const openCode2Server = yield* OpenCode2Server.make({
+    const openCode2Client = yield* OpenCode2Client.make.pipe(
+      Effect.provideService(HttpClient.HttpClient, httpClient),
+    );
+    const serverSettings = {
       binaryPath: effectiveConfig.binaryPath,
       serverUrl: effectiveConfig.serverUrl,
       serverPassword: effectiveConfig.serverPassword,
       directory: helperDirectory,
       environment: processEnv,
-    }).pipe(
+    };
+    const openCode2Server = yield* OpenCode2Server.make(serverSettings).pipe(
       Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, openCodeRuntime),
-      Effect.provideService(
-        OpenCode2Client.OpenCode2Client,
-        yield* OpenCode2Client.make.pipe(Effect.provideService(HttpClient.HttpClient, httpClient)),
-      ),
+      Effect.provideService(OpenCode2Client.OpenCode2Client, openCode2Client),
+    );
+    const sessionServers = yield* OpenCode2SessionServers.make(serverSettings).pipe(
+      Effect.provideService(OpenCode2Server.OpenCode2Server, openCode2Server),
+      Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, openCodeRuntime),
+      Effect.provideService(OpenCode2Client.OpenCode2Client, openCode2Client),
     );
     const orchestrationAdapter = selectOpenCodeRuntimeAdapter({
       probe: runtimeProbe,
       v1: openCodeV1Adapter,
       v2: yield* OpenCode2AdapterV2.make(instanceId, effectiveConfig.shareServer).pipe(
-        Effect.provideService(
-          OpenCode2Server.OpenCode2SessionServers,
-          yield* OpenCode2Server.makeSessionServers({
-            binaryPath: effectiveConfig.binaryPath,
-            serverUrl: effectiveConfig.serverUrl,
-            serverPassword: effectiveConfig.serverPassword,
-            directory: helperDirectory,
-            environment: processEnv,
-          }).pipe(
-            Effect.provideService(OpenCode2Server.OpenCode2Server, openCode2Server),
-            Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, openCodeRuntime),
-            Effect.provideService(
-              OpenCode2Client.OpenCode2Client,
-              yield* OpenCode2Client.make.pipe(
-                Effect.provideService(HttpClient.HttpClient, httpClient),
-              ),
-            ),
-          ),
-        ),
+        Effect.provideService(OpenCode2SessionServers.OpenCode2SessionServers, sessionServers),
       ),
     });
     const loadOpenCode2Models = yield* makeOpenCode2ModelLoader(

@@ -1,3 +1,4 @@
+import * as OpenCode2SessionServers from "./OpenCode2SessionServers.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -211,7 +212,7 @@ describe("OpenCode2Server spawned server", () => {
       const info = yield* first.client.server.info();
       assert.strictEqual(info.paths.tmp, directory);
       assert.strictEqual(second.client, first.client);
-      const servers = yield* OpenCode2Server.makeSessionServers({
+      const servers = yield* OpenCode2SessionServers.make({
         binaryPath,
         serverUrl: "",
         serverPassword: "",
