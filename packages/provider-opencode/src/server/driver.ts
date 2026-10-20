@@ -300,8 +300,24 @@ export const OpenCodeDriver: ProviderDriver<
       // The instance registry has already read a referenced password from its secret provider.
       serverPassword: settingsSecretLiteral(config.serverPassword),
     } satisfies OpenCodeSettings;
+    // Container wrappers derive their mounts from cwd. Discovery must not inherit the
+    // T3 server's workspace, and its directory must outlive the reusable helper process.
+    const helperDirectory =
+      !effectiveConfig.shareServer && effectiveConfig.serverUrl.trim().length === 0
+        ? yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-opencode-probe-" }).pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProviderDriverError({
+                  driver: DRIVER_KIND,
+                  instanceId,
+                  detail: "Failed to prepare the OpenCode discovery directory.",
+                  cause,
+                }),
+            ),
+          )
+        : host.paths.cwd;
     const probeRuntime = (probeEnv: NodeJS.ProcessEnv) =>
-      probeOpenCodeRuntime(effectiveConfig, probeEnv).pipe(
+      probeOpenCodeRuntime(effectiveConfig, probeEnv, helperDirectory).pipe(
         Effect.provideService(HttpClient.HttpClient, httpClient),
         Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, openCodeRuntime),
       );
@@ -385,7 +401,7 @@ export const OpenCodeDriver: ProviderDriver<
       binaryPath: effectiveConfig.binaryPath,
       serverUrl: effectiveConfig.serverUrl,
       serverPassword: effectiveConfig.serverPassword,
-      directory: host.paths.cwd,
+      directory: helperDirectory,
       environment: processEnv,
     }).pipe(
       Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, openCodeRuntime),
@@ -398,8 +414,26 @@ export const OpenCodeDriver: ProviderDriver<
       probe: runtimeProbe,
       resolve: resolveRuntime,
       v1: openCodeV1Adapter,
-      v2: yield* OpenCode2AdapterV2.make(instanceId).pipe(
-        Effect.provideService(OpenCode2Server.OpenCode2Server, openCode2Server),
+      v2: yield* OpenCode2AdapterV2.make(instanceId, effectiveConfig.shareServer).pipe(
+        Effect.provideService(
+          OpenCode2Server.OpenCode2SessionServers,
+          yield* OpenCode2Server.makeSessionServers({
+            binaryPath: effectiveConfig.binaryPath,
+            serverUrl: effectiveConfig.serverUrl,
+            serverPassword: effectiveConfig.serverPassword,
+            directory: helperDirectory,
+            environment: processEnv,
+          }).pipe(
+            Effect.provideService(OpenCode2Server.OpenCode2Server, openCode2Server),
+            Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, openCodeRuntime),
+            Effect.provideService(
+              OpenCode2Client.OpenCode2Client,
+              yield* OpenCode2Client.make.pipe(
+                Effect.provideService(HttpClient.HttpClient, httpClient),
+              ),
+            ),
+          ),
+        ),
       ),
     });
     const catalogWatch = yield* makeOpenCode2CatalogWatch(processEnv);
@@ -476,7 +510,7 @@ export const OpenCodeDriver: ProviderDriver<
       );
     const serverOwner = yield* OpenCodeServerOwner.make({
       binaryPath: effectiveConfig.binaryPath,
-      directory: host.paths.cwd,
+      directory: helperDirectory,
       ...(effectiveConfig.serverPassword ? { serverPassword: effectiveConfig.serverPassword } : {}),
       environment: processEnv,
     });
@@ -544,7 +578,7 @@ export const OpenCodeDriver: ProviderDriver<
             : Effect.void,
         provider: checkOpenCodeProviderStatus(
           effectiveConfig,
-          host.paths.cwd,
+          helperDirectory,
           runtimeProbe.refresh,
           loadOpenCode2Models,
           processEnv,
