@@ -20,3 +20,24 @@ T3 Code detects your installed version automatically. OpenCode 1.x has **Limited
 - **Compaction**: Send `/compact` manually, or configure `compaction` (`auto`, `buffer`, `keep.tokens`) in `opencode.json` on OpenCode 2.
 - **Approvals**: Follows [permission modes](./permission-modes.md); **Auto** behaves like **Supervised**. Reading `.env` / `.env.local` asks for approval in restricted modes (`.env.example` is allowed). **Allow for workspace** applies across all OpenCode sessions sharing that workspace—use **Allow once** on shared servers.
 - **Refreshing config**: Click **Refresh provider status** (web/desktop) or **Refresh models** (mobile) after auth/config changes. Local helper caches clear after 30 seconds of inactivity; external servers may need a restart. Project-specific models in `opencode.json` load when opening that project's model picker.
+## Run each thread in a separate process
+
+In **Settings > Providers** on web or desktop, turn off **Share server between
+threads** for your OpenCode instance. New OpenCode 2 threads start a dedicated
+local server from their project or worktree directory. This also applies to
+threads used from mobile and remote clients. OpenCode 1 already uses dedicated
+conversation processes.
+
+Set **Binary path** to your container wrapper to control which directories it
+mounts. Process separation alone does not restrict filesystem access. Provider
+discovery and text-generation helpers start from an empty temporary directory.
+OpenCode's on-disk history and credentials still use its configured storage.
+
+Existing threads retain their sharing mode after changing the setting or
+restarting T3 Code. Start a new thread to use the new mode. Changing a dedicated
+thread's worktree closes its process; the next turn resumes the conversation from
+the new directory. Turn sharing back on to share servers for new threads.
+
+With an external **Server URL**, this setting separates T3's session handling;
+the external server's process remains managed by its owner.
+
