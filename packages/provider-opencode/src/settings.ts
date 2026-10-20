@@ -11,6 +11,15 @@ import * as Schema from "effect/Schema";
 
 export const OpenCodeSettings = makeProviderSettingsSchema(
   {
+    shareServer: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(true)),
+      Schema.annotateKey({
+        title: "Share server between threads",
+        providerSettingsForm: { control: "switch" },
+        description:
+          "Turn off to start new OpenCode 2 threads in separate processes from their project or worktree directories. Existing threads keep their sharing mode. External servers remain externally managed.",
+      }),
+    ),
     enabled: Schema.Boolean.pipe(
       Schema.withDecodingDefault(Effect.succeed(false)),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
@@ -55,7 +64,7 @@ export const OpenCodeSettings = makeProviderSettingsSchema(
     ),
   },
   {
-    order: ["binaryPath", "serverUrl", "serverPassword"],
+    order: ["binaryPath", "serverUrl", "serverPassword", "shareServer"],
   },
 );
 export type OpenCodeSettings = typeof OpenCodeSettings.Type;

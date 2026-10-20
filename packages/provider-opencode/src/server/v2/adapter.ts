@@ -664,8 +664,18 @@ const turnTokenUsage = (turn: ActiveTurn, status: OrchestrationV2ProviderTurn["s
       };
 };
 
-export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: ProviderInstanceId) {
-  const server = yield* OpenCode2Server.OpenCode2Server;
+export const make = Effect.fn("OpenCode2Adapter.make")(function* (
+  instanceId: ProviderInstanceId,
+  shareServer = true,
+) {
+  const servers = yield* OpenCode2Server.OpenCode2SessionServers;
+  const capabilitiesFor = (shared: boolean) => ({
+    ...OpenCode2ProviderCapabilities,
+    sessions: {
+      ...OpenCode2ProviderCapabilities.sessions,
+      supportsMultipleProviderThreadsPerSession: shared,
+    },
+  });
   const idAllocator = yield* IdAllocator.IdAllocatorV2;
   const host = yield* ProviderHost.ProviderHost;
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
@@ -676,7 +686,13 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
   const mcpServerNameFor = (threadId: string) =>
     t3McpServerName(threadId).pipe(Effect.provideService(Digest.Digest, crypto));
 
-  const borrow = Effect.gen(function* () {
+  /**
+   * Holding a borrow prevents idle shutdown during long tool calls. Reconnecting
+   * borrows from the same owner, which restarts a process that died.
+   */
+  const borrow = Effect.fn("OpenCode2Adapter.borrow")(function* (
+    server: OpenCode2Server.OpenCode2Server["Service"],
+  ) {
     const lent = yield* Deferred.make<
       OpenCode2Server.OpenCode2Connection,
       OpenCodeRuntime.OpenCodeRuntimeError
@@ -695,6 +711,8 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
   const openSession = Effect.fn("OpenCode2Adapter.openSession")(function* (
     input: Parameters<ProviderAdapter.ProviderAdapterV2["Service"]["openSession"]>[0],
     initial: {
+      readonly server: OpenCode2Server.OpenCode2Server["Service"];
+      readonly shared: boolean;
       readonly connection: OpenCode2Server.OpenCode2Connection;
       readonly scope: Scope.Closeable;
     },
@@ -702,7 +720,8 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
     let connection = initial.connection;
     let client = connection.client;
     const sessionScope = yield* Effect.scope;
-    // Project config changes model limits; key by directory because this runtime serves all instance threads.
+    // A project's OpenCode config can change model limits, so a shared runtime
+    // must cache them separately for each directory.
     const contextWindows = new Map<string, Map<string, number>>();
     const directoryOf = (cwd: string | null | undefined) => cwd ?? host.paths.cwd;
     const windowOf = (cwd: string | null | undefined, model: string) =>
@@ -715,7 +734,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       status: "ready",
       cwd: input.runtimePolicy.cwd ?? host.paths.cwd,
       model: input.modelSelection.model,
-      capabilities: OpenCode2ProviderCapabilities,
+      capabilities: capabilitiesFor(initial.shared),
       createdAt: now,
       updatedAt: now,
       lastError: null,
@@ -2665,7 +2684,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       // Release the borrow on every failure, including reconnect interruption, so spawned servers can idle-stop.
       const scope = yield* Scope.make();
       const { next, stream } = yield* Effect.gen(function* () {
-        const next = yield* borrow.pipe(Effect.provideService(Scope.Scope, scope));
+        const next = yield* borrow(initial.server).pipe(Effect.provideService(Scope.Scope, scope));
         return { next, stream: yield* next.events };
       }).pipe(Effect.onError(() => Scope.close(scope, Exit.void)));
       const previous = currentScope;
@@ -4122,7 +4141,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
     instanceId,
     driver,
     getCapabilities: Effect.fn("OpencodeAdapter.getCapabilities")(function () {
-      return Effect.succeed(OpenCode2ProviderCapabilities);
+      return Effect.succeed(capabilitiesFor(shareServer));
     }),
     planSelectionTransition: Effect.fn("OpencodeAdapter.planSelectionTransition")(function () {
       return Effect.succeed(turnScopedSelectionTransition());
@@ -4131,10 +4150,20 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
     // spawned server is not idle-stopped under a long tool call.
     openSession: Effect.fn("OpenCode2Adapter.borrowAndOpenSession")(
       function* (input) {
+        // Persisted bindings own their mode, including a shared ID whose first open failed.
+        const shared =
+          input.resumeFromSession?.capabilities.sessions
+            .supportsMultipleProviderThreadsPerSession ??
+          (input.providerSessionId ===
+            idAllocator.derive.providerSession({ providerInstanceId: instanceId }) ||
+            shareServer);
+        const server = yield* servers.get(
+          shared ? { _tag: "Shared" } : { _tag: "Dedicated", cwd: input.runtimePolicy.cwd },
+        );
         const scope = yield* Scope.make();
         yield* Effect.addFinalizer((exit) => Scope.close(scope, exit));
-        const connection = yield* borrow.pipe(Effect.provideService(Scope.Scope, scope));
-        return yield* openSession(input, { connection, scope });
+        const connection = yield* borrow(server).pipe(Effect.provideService(Scope.Scope, scope));
+        return yield* openSession(input, { connection, scope, server, shared });
       },
       (effect, input) =>
         effect.pipe(
