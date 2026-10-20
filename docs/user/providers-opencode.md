@@ -37,6 +37,27 @@ fail, check the URL, credentials, and OpenCode version, then refresh provider st
 After a lost connection, send another prompt to reconnect to the same OpenCode
 session.
 
+## Run each thread in a separate process
+
+In **Settings > Providers** on web or desktop, turn off **Share server between
+threads** for your OpenCode instance. New OpenCode 2 threads start a dedicated
+local server from their project or worktree directory. This also applies to
+threads used from mobile and remote clients. OpenCode 1 already uses dedicated
+conversation processes.
+
+Set **Binary path** to your container wrapper to control which directories it
+mounts. Process separation alone does not restrict filesystem access. Provider
+discovery and text-generation helpers start from an empty temporary directory.
+OpenCode's on-disk history and credentials still use its configured storage.
+
+Existing threads retain their sharing mode after changing the setting or
+restarting T3 Code. Start a new thread to use the new mode. Changing a dedicated
+thread's worktree closes its process; the next turn resumes the conversation from
+the new directory. Turn sharing back on to share servers for new threads.
+
+With an external **Server URL**, this setting separates T3's session handling;
+the external server's process remains managed by its owner.
+
 ## Approvals
 
 OpenCode follows the shared [permission modes](./permission-modes.md). **Auto** has

@@ -11,6 +11,20 @@ import {
 } from "./ProviderSettingsForm";
 
 describe("ProviderSettingsForm helpers", () => {
+  it("persists the OpenCode server sharing switch from its schema", () => {
+    const opencode = providerClients.get(ProviderDriverKind.make("opencode"));
+    const field = deriveProviderSettingsFields(opencode!).find(
+      (field) => field.key === "shareServer",
+    );
+    expect(field).toMatchObject({ control: "switch", defaultBooleanValue: true });
+    expect(
+      nextProviderConfigWithFieldValue({ binaryPath: "wrapper" }, field!, false),
+    ).toMatchObject({
+      binaryPath: "wrapper",
+      shareServer: false,
+    });
+  });
+
   it("exposes the sharing switch for managed Codex without editable installation paths", () => {
     expect(deriveProviderSettingsFields(codexManagedRuntimeSettings)).toMatchObject([
       { key: "shareAppServer", control: "switch", defaultBooleanValue: true },

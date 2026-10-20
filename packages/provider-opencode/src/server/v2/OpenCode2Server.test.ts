@@ -7,6 +7,8 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Redacted from "effect/Redacted";
+import * as Scope from "effect/Scope";
+import * as Exit from "effect/Exit";
 import * as TestClock from "effect/testing/TestClock";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as HttpClient from "effect/http/HttpClient";
@@ -168,7 +170,7 @@ const server = createServer((request, response) => {
     return;
   }
   response.writeHead(200, { "content-type": "application/json" });
-  response.end(JSON.stringify({ version: "2.0.18", pid: process.pid, urls: [], paths: { tmp: "/tmp" } }));
+  response.end(JSON.stringify({ version: "2.0.18", pid: process.pid, urls: [], paths: { tmp: process.cwd() } }));
 });
 server.listen(0, "127.0.0.1", () => {
   process.stdout.write("server listening on http://127.0.0.1:" + server.address().port + "\\n");
@@ -206,7 +208,36 @@ describe("OpenCode2Server spawned server", () => {
       const second = yield* server.withConnection((connection) => Effect.succeed(connection));
       assert.strictEqual(first.version, "2.0.18");
       assert.strictEqual(first.external, false);
+      const info = yield* first.client.server.info();
+      assert.strictEqual(info.paths.tmp, directory);
       assert.strictEqual(second.client, first.client);
+      const servers = yield* OpenCode2Server.makeSessionServers({
+        binaryPath,
+        serverUrl: "",
+        serverPassword: "",
+        directory,
+        environment: { ...(yield* HostProcess.Environment) },
+      }).pipe(Effect.provideService(OpenCode2Server.OpenCode2Server, server));
+      const shared = yield* servers.get({ _tag: "Shared" });
+      assert.strictEqual(yield* shared.withConnection((c) => Effect.succeed(c.url)), first.url);
+      const scope = yield* Scope.make();
+      const dedicated = yield* servers
+        .get({ _tag: "Dedicated", cwd: directory })
+        .pipe(Effect.provideService(Scope.Scope, scope));
+      const other = yield* servers.get({ _tag: "Dedicated", cwd: directory });
+      const a = yield* dedicated.withConnection((c) => Effect.succeed(c));
+      const b = yield* other.withConnection((c) => Effect.succeed(c));
+      assert.notStrictEqual(a.url, b.url);
+      assert.notStrictEqual(a.url, first.url);
+      assert.strictEqual((yield* a.client.server.info()).paths.tmp, directory);
+      yield* Scope.close(scope, Exit.void);
+      assert.isTrue(Exit.isFailure(yield* a.client.server.info().pipe(Effect.exit)));
+      assert.strictEqual((yield* b.client.server.info()).version, "2.0.18");
+      assert.strictEqual((yield* first.client.server.info()).version, "2.0.18");
+      const invalid = yield* servers
+        .get({ _tag: "Dedicated", cwd: "relative/path" })
+        .pipe(Effect.flip);
+      assert.strictEqual(invalid.operation, "sessionDirectory");
     }).pipe(
       Effect.scoped,
       Effect.provide(

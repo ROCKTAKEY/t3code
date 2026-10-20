@@ -5,6 +5,7 @@ import {
   ProviderSessionId,
   ThreadId,
   type ProviderReplayTranscript,
+  type OrchestrationV2ProviderSession,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -190,6 +191,12 @@ const replayHttpClient = (
 export const replayServer = (
   transcript: ProviderReplayTranscript,
   options?: {
+    readonly shareServer?: boolean;
+    readonly resumeFromSession?: OrchestrationV2ProviderSession;
+    readonly providerSessionId?: ProviderSessionId;
+    readonly selectedModes?: Array<
+      Parameters<OpenCode2Server.OpenCode2SessionServers["Service"]["get"]>[0]
+    >;
     readonly external?: boolean;
     readonly onPrompt?: (input: unknown) => void;
     readonly replayGate?: ProviderReplayGate;
@@ -237,6 +244,12 @@ export const replayServer = (
 const makeReplayAdapter = (
   transcript: ProviderReplayTranscript,
   options?: {
+    readonly shareServer?: boolean;
+    readonly resumeFromSession?: OrchestrationV2ProviderSession;
+    readonly providerSessionId?: ProviderSessionId;
+    readonly selectedModes?: Array<
+      Parameters<OpenCode2Server.OpenCode2SessionServers["Service"]["get"]>[0]
+    >;
     readonly external?: boolean;
     readonly onPrompt?: (input: unknown) => void;
     readonly replayGate?: ProviderReplayGate;
@@ -245,8 +258,17 @@ const makeReplayAdapter = (
 ) =>
   Effect.gen(function* () {
     const server = yield* replayServer(transcript, options);
-    return yield* OpenCode2Adapter.make(ProviderInstanceId.make("opencode")).pipe(
-      Effect.provideService(OpenCode2Server.OpenCode2Server, server),
+    return yield* OpenCode2Adapter.make(
+      ProviderInstanceId.make("opencode"),
+      options?.shareServer ?? true,
+    ).pipe(
+      Effect.provideService(OpenCode2Server.OpenCode2SessionServers, {
+        get: (mode) =>
+          Effect.sync(() => {
+            options?.selectedModes?.push(mode);
+            return server;
+          }),
+      }),
     );
   });
 
@@ -284,6 +306,12 @@ function layerRegistry(
 export const openCode2ReplayRuntime = (
   entries: ReadonlyArray<ProviderReplayEntry>,
   options?: {
+    readonly shareServer?: boolean;
+    readonly resumeFromSession?: OrchestrationV2ProviderSession;
+    readonly providerSessionId?: ProviderSessionId;
+    readonly selectedModes?: Array<
+      Parameters<OpenCode2Server.OpenCode2SessionServers["Service"]["get"]>[0]
+    >;
     readonly external?: boolean;
     readonly onPrompt?: (input: unknown) => void;
     readonly borrowers?: { current: number };
@@ -307,7 +335,9 @@ export const openCode2ReplayRuntime = (
     ).pipe(Effect.provideService(FileSystem.FileSystem, fileSystem));
     return yield* adapter.openSession({
       threadId: ThreadId.make("thread:opencode2-adapter"),
-      providerSessionId: ProviderSessionId.make("provider-session:opencode2-adapter"),
+      providerSessionId:
+        options?.providerSessionId ?? ProviderSessionId.make("provider-session:opencode2-adapter"),
+      ...(options?.resumeFromSession ? { resumeFromSession: options.resumeFromSession } : {}),
       modelSelection: {
         instanceId: ProviderInstanceId.make("opencode"),
         model: "opencode/big-pickle",

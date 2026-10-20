@@ -15,6 +15,7 @@ import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
 import * as References from "effect/References";
 import * as Stream from "effect/Stream";
+import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
@@ -30,7 +31,11 @@ import { OPENCODE_2_RESPONSES, replayOpenCodeServer } from "./probeResponses.fix
 import { OpenCodeDriver, openCodeUpdateFor } from "./driver.ts";
 import * as TestProviderHost from "@t3tools/provider-testing/TestProviderHost";
 
+const decodeSettings = Schema.decodeEffect(OpenCodeDriver.configSchema);
+
 const serverStarts: Array<string> = [];
+const probeDirectories: Array<string | undefined> = [];
+const helperDirectories: Array<string> = [];
 const reachedServer = (operation: string) =>
   Effect.sync(() => serverStarts.push(operation)).pipe(
     Effect.andThen(
@@ -43,8 +48,15 @@ const reachedServer = (operation: string) =>
     ),
   );
 const openCode2Runtime = {
-  runOpenCodeCommand: () => Effect.succeed({ stdout: "opencode v2.0.18\n", stderr: "", code: 0 }),
-  startOpenCodeServerProcess: () => reachedServer("start"),
+  runOpenCodeCommand: (input: { cwd?: string }) =>
+    Effect.sync(() => {
+      probeDirectories.push(input.cwd);
+      return { stdout: "opencode v2.0.18\n", stderr: "", code: 0 };
+    }),
+  startOpenCodeServerProcess: (input: { directory: string }) => {
+    helperDirectories.push(input.directory);
+    return reachedServer("start");
+  },
   connectToOpenCodeServer: () => reachedServer("connect"),
 } as unknown as OpenCodeRuntime.OpenCodeRuntime["Service"];
 
@@ -72,6 +84,30 @@ const create = (config: Partial<OpenCodeSettings>, http: HttpClient.HttpClient) 
 const noHttp = HttpClient.make(() => Effect.die("A local binary must not be probed over HTTP"));
 
 it.layer(layer)("OpenCodeDriver runtime selection", (it) => {
+  it.effect("probes and generates titles outside the workspace in dedicated mode", () =>
+    Effect.gen(function* () {
+      probeDirectories.length = 0;
+      helperDirectories.length = 0;
+      const instance = yield* create({ shareServer: false }, noHttp);
+      yield* Effect.flip(
+        instance.textGeneration.generateThreadTitle({
+          cwd: process.cwd(),
+          message: "hello",
+          modelSelection: { instanceId: instance.instanceId, model: "opencode/big-pickle" },
+        }),
+      );
+      const directory = probeDirectories[0];
+      assert.isString(directory);
+      assert.notStrictEqual(directory, process.cwd());
+      assert.deepEqual(helperDirectories, [directory]);
+      assert.deepEqual(NodeFS.readdirSync(directory!), []);
+      assert.isFalse(
+        (yield* instance.orchestrationAdapter.getCapabilities()).sessions
+          .supportsMultipleProviderThreadsPerSession,
+      );
+    }).pipe(Effect.scoped),
+  );
+
   it.effect("never starts a 1.x server for an OpenCode 2 instance", () =>
     Effect.gen(function* () {
       serverStarts.length = 0;
@@ -388,3 +424,11 @@ it.layer(layerUpdate)("OpenCodeDriver updates", (it) => {
       }).pipe(Effect.scoped),
   );
 });
+
+it.effect("defaults to sharing OpenCode servers and accepts dedicated mode", () =>
+  Effect.gen(function* () {
+    assert.strictEqual(OpenCodeDriver.defaultConfig().shareServer, true);
+    const config = yield* decodeSettings({ shareServer: false });
+    assert.strictEqual(config.shareServer, false);
+  }),
+);

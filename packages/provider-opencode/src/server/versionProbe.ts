@@ -58,12 +58,14 @@ function classifyOpenCodeProbeResponse(
 const probeOpenCodeBinary = Effect.fn("probeOpenCodeBinary")(function* (
   binaryPath: string,
   environment: NodeJS.ProcessEnv | undefined,
+  cwd?: string,
 ) {
   const runtime = yield* OpenCodeRuntime.OpenCodeRuntime;
   const { stdout } = yield* runtime
     .runOpenCodeCommand({
       binaryPath,
       args: ["--version"],
+      ...(cwd === undefined ? {} : { cwd }),
       ...(environment === undefined ? {} : { environment }),
     })
     .pipe(
@@ -163,6 +165,7 @@ export const probeOpenCodeRuntime = (
     readonly serverPassword: string;
   },
   environment?: NodeJS.ProcessEnv,
+  cwd?: string,
 ): Effect.Effect<
   ProbedOpenCode,
   OpenCodeRuntime.OpenCodeRuntimeError,
@@ -170,7 +173,7 @@ export const probeOpenCodeRuntime = (
 > =>
   settings.serverUrl.trim().length > 0
     ? probeOpenCodeServer(settings.serverUrl, settings.serverPassword)
-    : probeOpenCodeBinary(settings.binaryPath, environment);
+    : probeOpenCodeBinary(settings.binaryPath, environment, cwd);
 
 export const makeOpenCodeRuntimeProbe = <E>(probe: Effect.Effect<ProbedOpenCode, E>) =>
   Effect.map(

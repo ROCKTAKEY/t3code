@@ -415,6 +415,49 @@ const history = {
 };
 
 it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
+  it.effect("preserves an allocated shared session whose first open failed", () =>
+    Effect.gen(function* () {
+      const ids = yield* IdAllocator.IdAllocatorV2;
+      const runtime = yield* openCode2ReplayRuntime(opening, {
+        shareServer: false,
+        providerSessionId: ids.derive.providerSession({ providerInstanceId: instanceId }),
+      });
+      assert.isTrue(
+        runtime.providerSession.capabilities.sessions.supportsMultipleProviderThreadsPerSession,
+      );
+    }).pipe(Effect.scoped, Effect.provide(IdAllocator.layer)),
+  );
+
+  it.effect("keeps each session's sharing mode across settings changes", () =>
+    Effect.gen(function* () {
+      for (const shared of [true, false]) {
+        const modes: NonNullable<Parameters<typeof openCode2ReplayRuntime>[1]>["selectedModes"] =
+          [];
+        const original = yield* openCode2ReplayRuntime(opening, {
+          shareServer: shared,
+          selectedModes: modes,
+        });
+        assert.strictEqual(
+          original.providerSession.capabilities.sessions.supportsMultipleProviderThreadsPerSession,
+          shared,
+        );
+        const resumed = yield* openCode2ReplayRuntime(opening, {
+          shareServer: !shared,
+          resumeFromSession: original.providerSession,
+          selectedModes: modes,
+        });
+        assert.strictEqual(
+          resumed.providerSession.capabilities.sessions.supportsMultipleProviderThreadsPerSession,
+          shared,
+        );
+        assert.deepEqual(modes, [
+          shared ? { _tag: "Shared" } : { _tag: "Dedicated", cwd: WORK },
+          shared ? { _tag: "Shared" } : { _tag: "Dedicated", cwd: WORK },
+        ]);
+      }
+    }).pipe(Effect.scoped),
+  );
+
   it.effect("switches the session's model and variant before a turn that changed them", () =>
     Effect.gen(function* () {
       const { runtime, thread } = yield* resumed([
