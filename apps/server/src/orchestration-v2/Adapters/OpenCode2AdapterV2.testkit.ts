@@ -1,4 +1,5 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as OpenCode2SessionServers from "@t3tools/provider-opencode/server/v2/OpenCode2SessionServers";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   ProviderInstanceId,
@@ -222,12 +223,6 @@ const replayHttpClient = (
 export const replayServer = (
   transcript: ProviderReplayTranscript,
   options?: {
-    readonly shareServer?: boolean;
-    readonly resumeFromSession?: OrchestrationV2ProviderSession;
-    readonly providerSessionId?: ProviderSessionId;
-    readonly selectedModes?: Array<
-      Parameters<OpenCode2Server.OpenCode2SessionServers["Service"]["get"]>[0]
-    >;
     readonly external?: boolean;
     readonly processExit?: Effect.Effect<void>;
     readonly beforeResponse?: (path: string) => Effect.Effect<void>;
@@ -286,10 +281,8 @@ const makeReplayAdapter = (
   transcript: ProviderReplayTranscript,
   options?: {
     readonly shareServer?: boolean;
-    readonly resumeFromSession?: OrchestrationV2ProviderSession;
-    readonly providerSessionId?: ProviderSessionId;
     readonly selectedModes?: Array<
-      Parameters<OpenCode2Server.OpenCode2SessionServers["Service"]["get"]>[0]
+      Parameters<OpenCode2SessionServers.OpenCode2SessionServers["Service"]["get"]>[0]
     >;
     readonly external?: boolean;
     readonly processExit?: Effect.Effect<void>;
@@ -305,7 +298,7 @@ const makeReplayAdapter = (
       ProviderInstanceId.make("opencode"),
       options?.shareServer ?? true,
     ).pipe(
-      Effect.provideService(OpenCode2Server.OpenCode2SessionServers, {
+      Effect.provideService(OpenCode2SessionServers.OpenCode2SessionServers, {
         get: (mode) =>
           Effect.sync(() => {
             options?.selectedModes?.push(mode);
@@ -359,7 +352,7 @@ export const openCode2ReplayRuntime = (
     readonly resumeFromSession?: OrchestrationV2ProviderSession;
     readonly providerSessionId?: ProviderSessionId;
     readonly selectedModes?: Array<
-      Parameters<OpenCode2Server.OpenCode2SessionServers["Service"]["get"]>[0]
+      Parameters<OpenCode2SessionServers.OpenCode2SessionServers["Service"]["get"]>[0]
     >;
     readonly external?: boolean;
     readonly processExit?: Effect.Effect<void>;
