@@ -38,7 +38,7 @@ export const make = Effect.fn("OpenCode2SessionServers.make")(function* (
     ),
   );
   return OpenCode2SessionServers.of({
-    get: (mode) =>
+    get: Effect.fn("OpenCode2SessionServers.get")((mode) =>
       mode._tag === "Shared"
         ? Effect.succeed(shared)
         : Effect.gen(function* () {
@@ -59,5 +59,6 @@ export const make = Effect.fn("OpenCode2SessionServers.make")(function* (
             Effect.provideService(OpenCode2Client.OpenCode2Client, client),
             Effect.provideService(Crypto.Crypto, crypto),
           ),
+    ),
   });
 });
