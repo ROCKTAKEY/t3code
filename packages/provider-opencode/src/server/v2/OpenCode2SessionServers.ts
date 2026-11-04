@@ -1,5 +1,5 @@
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
@@ -30,7 +30,7 @@ export const make = Effect.fn("OpenCode2SessionServers.make")(function* (
   const shared = yield* OpenCode2Server.OpenCode2Server;
   const runtime = yield* OpenCodeRuntime.OpenCodeRuntime;
   const client = yield* OpenCode2Client.OpenCode2Client;
-  const crypto = yield* Crypto.Crypto;
+  const secureRandom = yield* SecureRandom.SecureRandom;
   const path = yield* Path.Path;
   const decodeDirectory = Schema.decodeUnknownEffect(
     Schema.String.check(Schema.makeFilter(path.isAbsolute)).pipe(
@@ -57,7 +57,7 @@ export const make = Effect.fn("OpenCode2SessionServers.make")(function* (
           }).pipe(
             Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, runtime),
             Effect.provideService(OpenCode2Client.OpenCode2Client, client),
-            Effect.provideService(Crypto.Crypto, crypto),
+            Effect.provideService(SecureRandom.SecureRandom, secureRandom),
           ),
     ),
   });
