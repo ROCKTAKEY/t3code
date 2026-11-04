@@ -262,7 +262,7 @@ describe("CodexAdapterV2 runtime policy", () => {
 describe("CodexAdapterV2 process spawning", () => {
   it.effect("launches the app-server with the configured launch arguments", () =>
     Effect.gen(function* () {
-      const spawnedArgs: Array<ReadonlyArray<string>> = [];
+      const spawnedArgs: Array<ChildProcess.StandardCommand["args"]> = [];
       const spawnedCwds: Array<string | undefined> = [];
       const spawner = ChildProcessSpawner.make((command) => {
         if (ChildProcess.isStandardCommand(command)) {
@@ -274,7 +274,11 @@ describe("CodexAdapterV2 process spawning", () => {
         );
       });
       const factory = yield* CodexAdapterV2.CodexAppServerClientFactory.pipe(
-        Effect.provide(CodexAdapterV2.layerAppServerClientFactory),
+        Effect.provide(
+          CodexAdapterV2.layerAppServerClientFactory.pipe(
+            Layer.provide(Layer.mock(PortScanner.PortDiscovery)({ trackAgent: () => () => {} })),
+          ),
+        ),
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
         Effect.provideService(
           ProviderEventLoggers.ProviderEventLoggers,
@@ -1012,7 +1016,7 @@ describe("CodexAdapterV2 process exit", () => {
           .pipe(Effect.tap(() => Effect.sync(() => assert.equal(runningAgents, 1)))),
       );
       assert.equal(runningAgents, 0);
-    }).pipe(Effect.provide(factoryLayer));
+    }).pipe(Effect.provide(factoryLayer.pipe(Layer.provide(Path.layer))));
   });
 });
 
@@ -1117,7 +1121,12 @@ describe("CodexAdapterV2 session initialize", () => {
     }).pipe(
       Effect.scoped,
       Effect.provide(
-        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        Layer.mergeAll(
+          IdAllocator.layer,
+          McpProviderSessions.layer,
+          NodeServices.layer,
+          NodeCrypto.layer,
+        ),
       ),
     ),
   );
@@ -1149,7 +1158,12 @@ describe("CodexAdapterV2 session initialize", () => {
     }).pipe(
       Effect.scoped,
       Effect.provide(
-        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        Layer.mergeAll(
+          IdAllocator.layer,
+          McpProviderSessions.layer,
+          NodeServices.layer,
+          NodeCrypto.layer,
+        ),
       ),
     ),
   );
@@ -1174,7 +1188,12 @@ describe("CodexAdapterV2 session initialize", () => {
     }).pipe(
       Effect.scoped,
       Effect.provide(
-        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        Layer.mergeAll(
+          IdAllocator.layer,
+          McpProviderSessions.layer,
+          NodeServices.layer,
+          NodeCrypto.layer,
+        ),
       ),
     ),
   );
