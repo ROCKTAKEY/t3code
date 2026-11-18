@@ -1,4 +1,3 @@
-import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Path from "effect/Path";
 import { historyResponseItems } from "@t3tools/provider-core/server/handoffBudget";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
@@ -1500,6 +1499,8 @@ describe("CodexAdapterV2 session initialize", () => {
                 Effect.andThen(Effect.never),
               )
             : Effect.void,
+        DEFAULT_CODEX_SETTINGS,
+        {},
         () => Effect.die("initialize never answers"),
       ).pipe(Effect.flip, Effect.forkChild({ startImmediately: true }));
       yield* Deferred.await(initializeAwaitingResponse);
