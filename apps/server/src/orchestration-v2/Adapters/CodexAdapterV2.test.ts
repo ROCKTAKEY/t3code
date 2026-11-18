@@ -389,10 +389,11 @@ describe("CodexAdapterV2 process spawning", () => {
       yield* open({}, false, "");
       yield* open({}, false, "relative/workspace");
 
+      const appServerArgs = ["app-server", "-c", "thread_unload_delay_secs=0"];
       assert.deepEqual(spawnedArgs, [
-        ["app-server", "--strict-config", "-c", "model_reasoning_summary=detailed"],
-        ["app-server", "--enable", "env-feature"],
-        ["app-server", "--strict-config", "-c", "model_reasoning_summary=detailed"],
+        [...appServerArgs, "--strict-config", "-c", "model_reasoning_summary=detailed"],
+        [...appServerArgs, "--enable", "env-feature"],
+        [...appServerArgs, "--strict-config", "-c", "model_reasoning_summary=detailed"],
       ]);
       assert.deepEqual(spawnedCwds, [undefined, undefined, "/workspace/dedicated"]);
     }).pipe(Effect.provideService(HostProcess.Platform, "linux"), Effect.provide(Path.layer)),
