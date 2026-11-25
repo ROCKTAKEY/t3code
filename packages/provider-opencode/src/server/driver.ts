@@ -428,7 +428,7 @@ export const OpenCodeDriver: ProviderDriver<
     const catalogWatch = yield* makeOpenCode2CatalogWatch(processEnv);
     // An external server may not have the host's cwd; without a location it uses its own default.
     const machineDirectory = (connection: OpenCode2Server.OpenCode2Connection) =>
-      connection.external ? undefined : host.paths.cwd;
+      connection.external ? undefined : helperDirectory;
     const followMachineCatalog = (connection: OpenCode2Server.OpenCode2Connection) =>
       catalogWatch.follow(
         connection.url,
